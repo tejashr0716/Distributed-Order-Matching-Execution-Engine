@@ -1,0 +1,94 @@
+name: ApexMatch CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: apex_matching_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics check_running"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Clang & Build Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang make build-essential
+
+    - name: Compile Native C++ Matching Engine & Run Microsecond Benchmark
+      run: |
+        cd cpp
+        make clean && make
+        ./benchmark_runner
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Set up Java 17 for Apache Spark
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+
+    - name: Apply Relational Schema
+      run: |
+        PGPASSWORD=postgrespassword psql -h localhost -U postgres -d apex_matching_db -f schema.sql
+
+    - name: Run Full Pytest Test Suite
+      env:
+        DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/apex_matching_db
+        REDIS_URL: redis://localhost:6379/0
+        RABBITMQ_URL: amqp://guest:guest@localhost:5672/
+        CPP_LIB_PATH: ./cpp/liborder_matching.so
+        PYTHONPATH: .
+      run: |
+        pytest backend/tests/ -v
+
+    - name: Run Spark Market Microstructure Analytics
+      run: |
+        python3 spark/market_microstructure_analytics.py
