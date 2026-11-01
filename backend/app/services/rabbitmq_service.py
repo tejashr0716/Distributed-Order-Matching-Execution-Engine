@@ -60,7 +60,7 @@ class RabbitMQService:
 
     async def publish_trade_execution(self, trade_event: Dict[str, Any]):
         payload = json.dumps(trade_event, default=str)
-        if self.exchange and not self.exchange.is_closed:
+        if self.exchange and self.channel and not self.channel.is_closed:
             try:
                 message = aio_pika.Message(
                     body=payload.encode("utf-8"),

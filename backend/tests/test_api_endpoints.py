@@ -76,3 +76,13 @@ async def test_market_depth_and_ticker_api():
         assert ticker_res.status_code == 200
         ticker = ticker_res.json()
         assert ticker["symbol"] == "BTC-USD"
+
+@pytest.mark.asyncio
+async def test_serve_trading_terminal():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/")
+        assert res.status_code == 200
+        assert "text/html" in res.headers.get("content-type", "")
+        assert "ApexMatch Pro" in res.text
+        assert "Order Matching & Execution Engine" in res.text
